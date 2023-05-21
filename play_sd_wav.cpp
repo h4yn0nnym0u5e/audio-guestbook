@@ -26,6 +26,10 @@
 
 #include <Arduino.h>
 #include "play_sd_wav.h"
+// ***** bodge round possible bug *****
+#define SPI_HAS_NOTUSINGINTERRUPT 1 
+unsigned short AudioUsingSPICount;
+// ************************************
 #include "spi_interrupt.h"
 
 

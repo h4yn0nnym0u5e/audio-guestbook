@@ -106,7 +106,7 @@ void setup() {
 
   // Audio connections require memory, and the record queue
   // uses this memory to buffer incoming audio.
-  AudioMemory(60);
+  AudioMemory(600);
 
   // Enable the audio shield, select input, and enable output
   sgtl5000_1.enable();

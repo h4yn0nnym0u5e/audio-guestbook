@@ -136,6 +136,7 @@ void setup() {
 
   // Audio connections require memory, and the record queue
   // uses this memory to buffer incoming audio.
+  // 60 blocks of 256 samples is enough buffer for 348ms
   AudioMemory(60);
 
   // Enable the audio shield, select input, and enable output
@@ -190,6 +191,7 @@ void setup() {
   // (i.e. saving a new audio recording onto the SD card)
   FsDateTime::setCallback(dateTime);
 
+  MTP.loop();
   mode = Mode::Ready; print_mode();
   
   // Play a beep to indicate system is online
@@ -230,16 +232,24 @@ void loop() {
       {
         // Debug message
         Serial.println("Starting greeting");
+        setMTPdeviceChecks(false); // disable MTP device checks while playing
         // Play the greeting inviting them to record their message
-        playGreeting.play("greeting.wav");    
+        playGreeting.play("greeting.wav"); 
+        delay(5);   
         mode = Mode::Prompting; print_mode();
       }
       
       // Handset is replaced
       if (HOOK_DEACTIVATED())
-      {  mode = Mode::Ready; print_mode(); }
+      {  
+        setMTPdeviceChecks(true); // re-enable MTP device checks
+        mode = Mode::Ready; print_mode(); 
+      }
       if (PLAY_ACTIVATED()) 
+      {
+        setMTPdeviceChecks(true); // re-enable MTP device checks
         playLastRecording();
+      }
       break;
       
     case Mode::Prompting:
@@ -248,6 +258,7 @@ void loop() {
       {
         // Debug message
         Serial.println("Starting beep");
+        setMTPdeviceChecks(true); // re-enable MTP device checks
         // Play the tone sound effect
         waveform1.begin(beep_volume, 440, WAVEFORM_SINE);
         theTimer = 0;
@@ -313,7 +324,7 @@ void loop() {
     case EndBeeps:
       if (theTimer > END_BEEP_TIME)
       {
-        Serial.println("beep");
+        //Serial.println("beep");
         if (0 != (beepState & 2)) // do a beep
         {
           waveform1.frequency(523.25);
@@ -457,6 +468,11 @@ void continueRecording() {
 #if defined(INSTRUMENT_SD_WRITE)
   uint32_t started = micros();
 #endif // defined(INSTRUMENT_SD_WRITE)
+
+// Assume the audio block size is a (sub)multiple of an SD card sector,
+// and write out large chunks at once for improved speed.
+// e.g. block size of 256, NBLOX=16, 2 bytes per sample
+// writes 16 sectors (8kbytes) at a time, every 93ms or so
 #define NBLOX 16  
   // Check if there is data in the queue
   if (queue1.available() >= NBLOX) {
@@ -689,26 +705,6 @@ void end_Beep(uint32_t pattern)
     beepState = pattern;
 }
 
-/*
-void end_Beep(void) {
-          waveform1.frequency(523.25);
-        waveform1.amplitude(beep_volume);
-        wait(250);
-        waveform1.amplitude(0);
-        wait(250);
-        waveform1.amplitude(beep_volume);
-        wait(250);
-        waveform1.amplitude(0);
-        wait(250);
-        waveform1.amplitude(beep_volume);
-        wait(250);
-        waveform1.amplitude(0);
-        wait(250);
-        waveform1.amplitude(beep_volume);
-        wait(250);
-        waveform1.amplitude(0);
-}
-*/
 
 //enum Mode {Initialising, Ready, WaitPrompt, Prompting, PromptBeep, Recording, EndBeeps, Playing, Dialling};
 #define OR_PRINT_MODE(x) else if (mode == Mode::x) Serial.println(#x)

@@ -44,6 +44,11 @@
 #define SW1_PIN 40 // goes low during dialling: used to re-start SW3 count
 #define SW3_PIN 26 // one high pulse per count during dialling
 
+// and the RGB LED
+#define LED_R 24
+#define LED_G 27
+#define LED_B 28
+
 #define MAX_RECORDING_TIME_MS 120000 // prevent failed hang-ups filling SD card
 
 #define noINSTRUMENT_SD_WRITE
@@ -118,9 +123,91 @@ void setNextRecNumber(void)
   Serial.printf("Next recording will be %d in %s\n",nextRecNumber,filename);  
 }
 
+enum colours_e {black,red,green,blue,yellow,purple};
+#if defined(LED_R)
+void setLEDcolour(int c)
+{
+  digitalWrite(LED_R,HIGH);
+  digitalWrite(LED_G,HIGH);
+  digitalWrite(LED_B,HIGH);
+  
+  switch (c)
+  {
+    default:
+    case black:
+      break;
 
-void setup() {
+    case red:
+      digitalWrite(LED_R,LOW);
+      break;
 
+    case green:
+      digitalWrite(LED_G,LOW);
+      break;
+
+    case blue:
+      digitalWrite(LED_B,LOW);
+      break;
+
+    case yellow:
+      digitalWrite(LED_R,LOW);
+      digitalWrite(LED_G,LOW);
+      break;
+
+    case purple:
+      digitalWrite(LED_R,LOW);
+      digitalWrite(LED_B,LOW);
+      break;
+  }
+}
+
+void setLEDfromMode(void)
+{
+// enum Mode {Initialising, Ready, WaitPrompt, Prompting, PromptBeep, Recording, EndBeeps, Playing, Dialling};
+  static Mode lastMode = Mode::Initialising;
+
+  if (lastMode != mode)
+  {
+    lastMode = mode;
+    switch (mode)
+    {
+      default:
+        setLEDcolour(green);
+        break;
+
+      case WaitPrompt:
+      case Prompting:
+      case PromptBeep:
+      case EndBeeps:
+        setLEDcolour(yellow);
+        break;
+      
+      case Dialling:
+        setLEDcolour(blue);
+        break;
+        
+      case Playing:
+        setLEDcolour(purple);
+        break;
+    }
+  }
+}
+#else
+void setLEDcolour(colours_e c) {}
+void setLEDfromMode(void) {}
+#endif // defined(LED_R)
+
+
+
+void setup() 
+{
+#if defined(LED_R)
+  pinMode(LED_R,OUTPUT);
+  pinMode(LED_G,OUTPUT);
+  pinMode(LED_B,OUTPUT);
+#endif // defined(LED_R)
+  setLEDcolour(yellow);
+  
   Serial.begin(9600);
   while (!Serial && millis() < 5000) {
     // wait for serial port to connect.
@@ -194,10 +281,14 @@ void setup() {
   MTP.loop();
   mode = Mode::Ready; print_mode();
   
+  setLEDcolour(purple);
+
   // Play a beep to indicate system is online
   waveform1.begin(beep_volume, 440, WAVEFORM_SINE);
   delay(1000);
   waveform1.amplitude(0);
+  
+  setLEDcolour(green);
 }
 
 void loop() {
@@ -206,6 +297,8 @@ void loop() {
   buttonPlay.update();
   dial.update();
 
+  setLEDfromMode();
+  
   switch(mode){
     case Mode::Ready:
       // An edge occurs when the handset is lifted
@@ -591,6 +684,7 @@ void playLastRecording(int backBy) {
     Serial.println(filename);
     playMessage.play(filename);
     mode = Mode::Playing; print_mode();
+    setLEDfromMode();
     while (!playMessage.isStopped())  // this works for playWav
     {
       buttonPlay.update();

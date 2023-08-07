@@ -46,8 +46,8 @@
 
 // and the RGB LED
 #define LED_R 24
-#define LED_G 27
-#define LED_B 28
+#define LED_G 28
+#define LED_B 27
 
 #define MAX_RECORDING_TIME_MS 120000 // prevent failed hang-ups filling SD card
 
@@ -83,6 +83,7 @@ Bounce buttonRecord = Bounce(HOOK_PIN, 40);
 Bounce buttonPlay = Bounce(PLAYBACK_BUTTON_PIN, 40);
 #define HOOK_ACTIVATED buttonRecord.fallingEdge
 #define HOOK_DEACTIVATED buttonRecord.risingEdge
+#define HOOK_ACTIVE 0 == buttonRecord.read
 #define PLAY_ACTIVATED buttonPlay.fallingEdge
 #define PLAY_DEACTIVATED buttonPlay.risingEdge
 
@@ -93,7 +94,7 @@ int theNumber; // the number you have dialled is...
 
 // Keep track of current state of the device
 elapsedMillis theTimer;
-enum Mode {Initialising, Ready, WaitPrompt, Prompting, PromptBeep, Recording, EndBeeps, Playing, Dialling};
+enum Mode {Initialising, Ready, WaitPrompt, Prompting, PromptBeep, Recording, EndBeeps, Playing, Dialling, AwaitingHangup};
 Mode mode = Mode::Initialising;
 
 float beep_volume = 0.4f; // not too loud :-)
@@ -117,18 +118,20 @@ unsigned long NumSamples = 0L;
 byte byte1, byte2, byte3, byte4;
 
 
+//====================================================================
 void setNextRecNumber(void)
 {
   nextRecNumber = findFileNumber(0,1);
   Serial.printf("Next recording will be %d in %s\n",nextRecNumber,filename);  
 }
 
+//====================================================================
 enum colours_e {black,red,green,blue,yellow,purple};
 #if defined(LED_R)
 void setLEDcolour(int c)
 {
-  digitalWrite(LED_R,HIGH);
-  digitalWrite(LED_G,HIGH);
+  analogWrite(LED_R,255);
+  analogWrite(LED_G,255);
   digitalWrite(LED_B,HIGH);
   
   switch (c)
@@ -138,11 +141,11 @@ void setLEDcolour(int c)
       break;
 
     case red:
-      digitalWrite(LED_R,LOW);
+      analogWrite(LED_R,0);
       break;
 
     case green:
-      digitalWrite(LED_G,LOW);
+      analogWrite(LED_G,0);
       break;
 
     case blue:
@@ -150,16 +153,17 @@ void setLEDcolour(int c)
       break;
 
     case yellow:
-      digitalWrite(LED_R,LOW);
-      digitalWrite(LED_G,LOW);
+      analogWrite(LED_R,0);
+      analogWrite(LED_G,192);
       break;
 
     case purple:
-      digitalWrite(LED_R,LOW);
+      analogWrite(LED_R,192);
       digitalWrite(LED_B,LOW);
       break;
   }
 }
+
 
 void setLEDfromMode(void)
 {
@@ -179,6 +183,7 @@ void setLEDfromMode(void)
       case Prompting:
       case PromptBeep:
       case EndBeeps:
+      case AwaitingHangup:
         setLEDcolour(yellow);
         break;
       
@@ -189,6 +194,10 @@ void setLEDfromMode(void)
       case Playing:
         setLEDcolour(purple);
         break;
+        
+      case Recording:
+        setLEDcolour(red);
+        break;
     }
   }
 }
@@ -198,7 +207,7 @@ void setLEDfromMode(void) {}
 #endif // defined(LED_R)
 
 
-
+//====================================================================
 void setup() 
 {
 #if defined(LED_R)
@@ -234,11 +243,23 @@ void setup()
   //sgtl5000_1.adcHighPassFilterDisable(); //
 
   // ----- Level settings -----
-  sgtl5000_1.micGain(24); // set to suit your microphone
+  sgtl5000_1.micGain(18); // set to suit your microphone
+  sgtl5000_1.audioPreProcessorEnable(); // optional: could be a good plan...
+#if 0  
+  // This needs more research!
+  sgtl5000_1.autoVolumeControl(1 /* maxGain */, 
+                               1 /* lbiResponse */, 
+                               0 /* hardLimit */, 
+                               -12.0f /* threshold [dB]*/, 
+                                32.0f /* attack [dB/s]*/, 
+                                 4.0f /* decay [dB/s]*/);
+                                 
+#endif // 0                                 
+  sgtl5000_1.autoVolumeEnable(); // ...to prevent shouty people overloading the file
   sgtl5000_1.volume(0.5); // overall speaker volume
 
   mixer.gain(0, 0.1f); // beeps
-  mixer.gain(1, 0.1f); // greeting
+  mixer.gain(1, 0.5f); // greeting
   mixer.gain(2, 1.0f); // message playback
   // --------------------------
 
@@ -291,6 +312,7 @@ void setup()
   setLEDcolour(green);
 }
 
+//====================================================================
 void loop() {
   // First, read the buttons
   buttonRecord.update();
@@ -343,6 +365,11 @@ void loop() {
         setMTPdeviceChecks(true); // re-enable MTP device checks
         playLastRecording();
       }
+      else if (dial.dialling())
+      {
+        mode = Mode::Dialling; print_mode();
+        theNumber = 0;
+      }
       break;
       
     case Mode::Prompting:
@@ -369,6 +396,12 @@ void loop() {
         playGreeting.stop();
         playLastRecording();
       }      
+      else if (dial.dialling())
+      {
+        playGreeting.stop();
+        mode = Mode::Dialling; print_mode();
+        theNumber = 0;
+      }
       break;
 
     case PromptBeep:
@@ -393,6 +426,12 @@ void loop() {
         waveform1.amplitude(0);
         playLastRecording();
       }      
+      else if (dial.dialling())
+      {
+        waveform1.amplitude(0);
+        mode = Mode::Dialling; print_mode();
+        theNumber = 0;
+      }
       break;      
 
     case Mode::Recording:
@@ -431,11 +470,33 @@ void loop() {
           theTimer = 0;            
         else
         {
-          mode = Mode::Ready; 
-          print_mode();
+          if (HOOK_ACTIVE())
+          {
+            mode = Mode::AwaitingHangup; 
+            print_mode();
+          }
+          else
+          {
+            mode = Mode::Ready; 
+            print_mode();
+          }
         }
       }
       break;   
+      
+    case AwaitingHangup:
+      if (!(HOOK_ACTIVE()))
+      {
+        mode = Mode::Ready; 
+        print_mode();
+      }
+      else if (dial.dialling())
+      {
+        waveform1.amplitude(0);
+        mode = Mode::Dialling; print_mode();
+        theNumber = 0;
+      }
+      break;
 
     // Dial back by N messages, so dial 1 to review your
     // just-left message. Should we do something humorous 
@@ -800,7 +861,7 @@ void end_Beep(uint32_t pattern)
 }
 
 
-//enum Mode {Initialising, Ready, WaitPrompt, Prompting, PromptBeep, Recording, EndBeeps, Playing, Dialling};
+//enum Mode {Initialising, Ready, WaitPrompt, Prompting, PromptBeep, Recording, EndBeeps, Playing, Dialling, AwaitingHangup};
 #define OR_PRINT_MODE(x) else if (mode == Mode::x) Serial.println(#x)
 void print_mode(void) { // only for debugging
   static int lastPrint = -1;
@@ -817,6 +878,7 @@ void print_mode(void) { // only for debugging
     OR_PRINT_MODE(Playing);
     OR_PRINT_MODE(Dialling);
     OR_PRINT_MODE(Initialising);
+    OR_PRINT_MODE(AwaitingHangup);
     else Serial.println(" Undefined");
   }
   else

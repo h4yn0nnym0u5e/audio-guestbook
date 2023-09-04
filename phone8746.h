@@ -14,6 +14,7 @@ class PulseDial
     };
     int count; 
     bool newNumber; 
+    bool seenPulse;
     void update(void);
     bool dialling(void) {return state != idle; }
 };

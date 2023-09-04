@@ -19,24 +19,18 @@ void PulseDial::update(void)
   switch (state)
   {
     case idle:
-      if (0 == digitalRead(SW1) && debounce >= debounce_time)
+      if (0 == digitalRead(SW1) // wind-up started
+       && debounce >= debounce_time)
       {
         count = 0;
         state = windup;
-      }
-      break;
-
-    case windup:    
-      if (1 == digitalRead(SW3))
-      {
-        state = high;
-        debounce = 0;
-        count++;
+        newNumber = false;
+        seenPulse = false;
       }
       break;
 
     case high:
-      if (debounce >= debounce_time)
+      if (debounce >= debounce_time) // pulse end
       {
         if (0 == digitalRead(SW3))
         {
@@ -45,21 +39,23 @@ void PulseDial::update(void)
         }
       }
       break;
-      
+
+    case windup:      
     case low:
       if (debounce >= debounce_time)
       {
-        if (1 == digitalRead(SW3))
+        if (1 == digitalRead(SW3)) // pulse start: cout it
         {
           state = high;
           debounce = 0;
           count++;
+          seenPulse = true;
         }
       }
-      if (1 == digitalRead(SW1))
+      if (1 == digitalRead(SW1)) // wind-down complete
       {
         state = idle; 
-        newNumber = true;
+        newNumber = seenPulse;
         debounce = 0;
 
         // 10 pulses means 0 was dialled

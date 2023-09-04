@@ -514,7 +514,12 @@ void loop() {
       else
       {
         if (theTimer > MESSAGE_START_DELAY_MS)
-          playLastRecording(theNumber); // go back this many recordings
+        {
+          if (theNumber > 0)
+            playLastRecording(theNumber); // go back this many recordings
+          else
+            end_Beep(0b0101010); // should never happen!
+        }
       }
 
       // Handset is replaced
